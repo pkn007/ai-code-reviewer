@@ -1,0 +1,700 @@
+
+                        You are given a PR diff and a context file. Analyze the code changes as a senior backend developer, deeply reviewing both the diff and the context file to provide insightful, high-quality comments. Focus on correctness, maintainability, performance, null-safety, consistency, and architectural implications. Comments should be concise, professional, and actionable, without restating the diff.
+
+                        For each comment, output only the JSON body (no curl commands, no headers, no additional text) in the exact format below:
+
+                        ~~~~json
+                        {
+                        "content": {
+                            "raw": "<comment text; you may include code fenced blocks ```bash...```>"
+                        },
+                        "inline": {
+                            "path": "<file_path_relative_to_repo_root>",
+                            "to": <line_number_where_comment_should_appear>
+                        }
+                        }
+                        ~~~~
+                        Important Rules:
+
+Output only valid JSON objects.
+
+Do not include any extra fields such as markup, type, id, metadata, or wrapper text.
+
+No markdown, no explanations, no prose outside the JSON objects.
+
+Each comment must be a standalone JSON object separated by exactly one blank line.
+
+Do not output an array.
+
+No trailing commas.
+
+Use normal single quotes in text (').
+
+Do not escape apostrophes.
+
+Only output comments when they are genuinely useful; if no comments are needed, output nothing.
+
+The comments must reflect senior-level code review across logic, correctness, maintainability, readability, architecture, security, performance, testability, and reliability.
+
+Feedback must be tied directly to specific lines and surrounding context in the diff. Do not give generic comments.
+
+Be concise but not vague. No nitpicking.
+
+Identify duplicate or near-duplicate code blocks and suggest abstraction or reuse when appropriate.
+
+Flag unclear naming, hidden side effects, missing error handling, concurrency issues, memory leaks, inconsistent patterns, and untested branches when relevant.
+
+Do not invent code. Comment only on what is present in the diff and context.
+
+Do not ask questions unless they improve code quality.
+
+No compliments or filler such as 'good job'.
+
+Do not make assumptions about business logic beyond what is visible.
+
+Avoid restating the code; focus on the impact and suggested fix.
+
+If the diff introduces potential breaking changes, highlight them with severity 'critical'.
+
+If no issues rise above 'minor' or are not truly helpful, output nothing.
+
+Suggest new code wherever possible, in a better coding style.
+
+The reviewer must not request validation of implementation details or ask the author to re-check their own logic unless a concrete mistake is visible in the diff and context.
+
+Avoid speculative or hypothetical risks; comments should only address issues explicitly observable in the provided code.
+
+Do not state obvious architectural or business-domain facts that are unrelated to the code changes.
+
+Every comment must include a clear, actionable change for the author to make; avoid comments that merely advise caution, verification, or consideration without a concrete fix.
+
+Do not require checks, validations, or confirmations about external systems, deployments, or integrations unless the diff introduces a direct breaking change.
+
+Comments should avoid reiterating system-wide guidelines unless the code directly violates them.
+
+The reviewer must not comment on backward/forward compatibility unless the diff itself introduces a measurable, observable breaking contract change.
+
+Do not output comments that simply describe potential impacts; only comment when the author must change code to resolve a real defect.
+
+This review is a preliminary check, not a final release validation; do not comment on intentional return values, intentional silence, or intentional partial implementations unless the diff clearly shows a defect.
+
+Do not question or flag function return types, return values, or missing returns if they appear intentional from surrounding context.
+
+Do not add multiple comments on the same line; at most one comment per line.
+
+Do not comment about missing, incomplete, or unclear documentation.
+
+The reviewer must avoid generating comments merely to reach a quota
+
+Do not create comments for the sake of having comments; if fewer comments are warranted, produce fewer.
+
+Do not elevate concerns beyond what is visible; strictly avoid speculative issues or interpretations.
+
+Catch missing null checks when they could cause real breakage; flag only those that are clearly critical.
+                        Make sure to enclose any code snippets in triple backticks back 
+                        Dont just suggest, you need to sound authoritative. Also, dont give direct reference to context number, use file or service name
+                        Output Example:
+                        ~~~~json
+                        {
+                        "content": {
+                            "raw": "Potential null pointer issue: The call to locationModel.getWarehouseId() could return null. Consider adding a null check before using it in cache lookup."
+                        },
+                        "inline": {
+                            "path": "src/main/java/com/dealshare/bannerservice/services/impl/ReferralServiceImpl.java",
+                            "to": 136
+                        }
+                        }
+                        ~~~~
+                        ~~~~json
+                        {
+                        "content": {
+                            "raw": "Performance consideration: The new warehouse lookup adds another cache check before city and cluster lookups. Consider monitoring cache hit rates to avoid potential performance regressions."
+                        },
+                        "inline": {
+                            "path": "src/main/java/com/dealshare/bannerservice/services/impl/ReferralServiceImpl.java",
+                            "to": 195
+                        }
+                        }
+                        ~~~~
+                        Note: Always balance the parentheses and start each comment object with ~~~~json and end with ~~~~
+                        Input Data:
+                        PR Diff:
+
+                        diff --git a/src/main/java/com/dealshare/service/cartservice/LPGmodule/models/data/s2s/PriceChallengeRefundEvent.java b/src/main/java/com/dealshare/service/cartservice/LPGmodule/models/data/s2s/PriceChallengeRefundEvent.java
+new file mode 100644
+index 0000000000..c19427aa91
+--- /dev/null
++++ b/src/main/java/com/dealshare/service/cartservice/LPGmodule/models/data/s2s/PriceChallengeRefundEvent.java
+@@ -0,0 +1,16 @@
++package com.dealshare.service.cartservice.LPGmodule.models.data.s2s;
++
++import lombok.AllArgsConstructor;
++import lombok.Builder;
++import lombok.Data;
++import lombok.NoArgsConstructor;
++import java.math.BigDecimal;
++
++@Data
++@Builder
++@NoArgsConstructor
++@AllArgsConstructor
++public class PriceChallengeRefundEvent {
++    private Long cartId;
++    private BigDecimal refundAmount;
++}
+diff --git a/src/main/java/com/dealshare/service/cartservice/LPGmodule/services/helper/PostPriceChallengeOperation.java b/src/main/java/com/dealshare/service/cartservice/LPGmodule/services/helper/PostPriceChallengeOperation.java
+index 7ac9b2c232..cce32421f7 100644
+--- a/src/main/java/com/dealshare/service/cartservice/LPGmodule/services/helper/PostPriceChallengeOperation.java
++++ b/src/main/java/com/dealshare/service/cartservice/LPGmodule/services/helper/PostPriceChallengeOperation.java
+@@ -4,6 +4,7 @@ import com.dealshare.service.cartservice.LPGmodule.constants.enums.PriceChalleng
+ import com.dealshare.service.cartservice.LPGmodule.models.data.PriceChallengeBulkUploadUserRecord;
+ import com.dealshare.service.cartservice.LPGmodule.models.data.s2s.CSVBulkUploadS2sData;
+ import com.dealshare.service.cartservice.LPGmodule.models.data.s2s.S2sData;
++import com.dealshare.service.cartservice.LPGmodule.models.data.s2s.PriceChallengeRefundEvent;
+ import com.dealshare.service.cartservice.LPGmodule.models.response.PriceChallengeResponseRow;
+ import com.dealshare.service.cartservice.dtos.OrderSmsUpdatesDto;
+ import com.dealshare.service.cartservice.entities.Cart;
+@@ -61,6 +62,9 @@ public class PostPriceChallengeOperation {
+     @Value("${kafka.lowest-price-challenge-event-topic}")
+     private String priceChallengeEventTopic;
+ 
++    @Value("${kafka.price-challenge-refund-event-topic}")
++    private String priceChallengeRefundEventTopic;
++
+     public void sendEmailPostPriceChallengeCsvUpload(byte[] csvBytes, String recipientEmail, Integer batchId){
+ 
+             try {
+@@ -147,6 +151,16 @@ public class PostPriceChallengeOperation {
+                                                     PriceChallengeBulkUploadUserRecord priceChallengeBulkUploadUserRecord) throws JsonProcessingException {
+         for(PriceChallengeResponseRow priceChallengeResponseRow : priceChallengeResponseRows) {
+ 
++            try {
++                PriceChallengeRefundEvent event = PriceChallengeRefundEvent.builder()
++                        .cartId(priceChallengeResponseRow.getCartId())
++                        .refundAmount(priceChallengeResponseRow.getRefundAmount())
++                        .build();
++                eventProducer.raiseKafkaEvents(priceChallengeRefundEventTopic, event);
++            } catch (Exception e) {
++                log.error("Error raising PriceChallengeRefundEvent for cartId: {}", priceChallengeResponseRow.getCartId(), e);
++            }
++
+             if (Boolean.TRUE.equals(priceChallengeResponseRow.getIsValidForS2SEvent())) {
+                 Cart cart = priceChallengeBulkUploadUserRecord.getCartIdToCartMap().get(priceChallengeResponseRow.getCartId());
+                 User user = priceChallengeBulkUploadUserRecord.getUserIdToUserMap().get(cart.getUserId());
+diff --git a/src/main/resources/application-stage.properties b/src/main/resources/application-stage.properties
+index e69de29bb2..bd4db183b5 100644
+--- a/src/main/resources/application-stage.properties
++++ b/src/main/resources/application-stage.properties
+@@ -0,0 +1 @@
++kafka.price-challenge-refund-event-topic=lowest-price-challenge-refund-event-topic
+\ No newline at end of file
+
+
+                        Context File:
+
+                        # Context for 2 files
+# Repo: /home/ubuntu/repo/cart-service
+
+=== IMPORT com.dealshare.service.cartservice.LPGmodule.constants.enums.PriceChallengeSMSType ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/LPGmodule/constants/enums/PriceChallengeSMSType.java
+
+public enum PriceChallengeSMSType {
+    WON,
+    INELIGIBLE,
+    LOST
+}
+
+=== IMPORT com.dealshare.service.cartservice.LPGmodule.models.data.PriceChallengeBulkUploadUserRecord ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/LPGmodule/models/data/PriceChallengeBulkUploadUserRecord.java
+
+@Data
+public class PriceChallengeBulkUploadUserRecord {
+    Map<Long,Cart> cartIdToCartMap = new HashMap<>();
+    Map<Long,User> userIdToUserMap  = new HashMap<>();
+    Map<Long,List<CustomerPoints>> userPointsMap =  new HashMap<>();
+    Map<Long, CartWarehouseDTO>  cartWarehouseDTOMap = new HashMap<>();
+}
+
+=== IMPORT com.dealshare.service.cartservice.LPGmodule.models.data.s2s.CSVBulkUploadS2sData ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/LPGmodule/models/data/s2s/CSVBulkUploadS2sData.java
+
+@Data
+public class CSVBulkUploadS2sData {
+    String challengeStatus;
+    String refundStatus;
+    String RefundValue;
+    String userRank;
+    String WarehouseName;
+    Long cartId;
+    String skuNames;
+}
+
+=== IMPORT com.dealshare.service.cartservice.LPGmodule.models.data.s2s.S2sData ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/LPGmodule/models/data/s2s/S2sData.java
+
+@Data
+public class S2sData {
+    Long userId;
+    String data;
+    String eventType;
+    String eventTime;
+}
+
+=== IMPORT com.dealshare.service.cartservice.LPGmodule.models.data.s2s.PriceChallengeRefundEvent ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/LPGmodule/models/data/s2s/PriceChallengeRefundEvent.java
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class PriceChallengeRefundEvent {
+    private Long cartId;
+    private BigDecimal refundAmount;
+}
+
+=== IMPORT com.dealshare.service.cartservice.LPGmodule.models.response.PriceChallengeResponseRow ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/LPGmodule/models/response/PriceChallengeResponseRow.java
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class PriceChallengeResponseRow {
+    private Long cartId;
+    private String phoneNumber;
+    private BigDecimal refundAmount;
+    private String whName;
+    private String skuName;
+
+    private String status;  // Success / Failed / Skipped
+    private String finalChallengeStatus;  // Won / Lost / Not Eligible / Discarded
+
+    private String failureReason; // reason for failure
+    private String smsStatus;  // Sent / Failed / Not Triggered
+    private String ticketClosureStatus;  // Closed / Open
+
+    private LocalDateTime settlementTimestamp;
+    private Long rowNumber;
+
+    private Boolean isValidForSms;
+    private Boolean isValidForRefund;
+    private Boolean isValidForTicketClosure;
+    private Boolean isValidForS2SEvent = Boolean.TRUE;
+    private PriceChallengeSMSType smsType;
+    private String fDStatus;
+}
+
+=== IMPORT com.dealshare.service.cartservice.dtos.OrderSmsUpdatesDto ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/dtos/OrderSmsUpdatesDto.java
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class OrderSmsUpdatesDto {
+    private Map<String, String> smsData;
+    private String templateName;
+    private String phoneNumber;
+}
+
+=== IMPORT com.dealshare.service.cartservice.entities.Cart ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/entities/Cart.java
+
+@Entity
+@Data
+@Table(name = "cart")
+@EntityListeners(AuditingEntityListener.class)
+@OptimisticLocking(type = OptimisticLockType.VERSION)
+public class Cart {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
+    private Long id;
+
+    @Column(name = "user_id")
+    private Long userId;
+
+    @Column(name="cart_type")
+    private String cartType;
+
+    @Column(name = "cart_status")
+    private String cartStatus;
+
+    // Legacy delivery_fee column - kept for backward compatibility (its INT in DB)
+    // Use deliveryFeeDecimal for new operations
+    @Column(name = "delivery_fee")
+    private Double deliveryFee = 0.0;
+
+    @Column(name = "delivery_fee_decimal")
+    private BigDecimal deliveryFeeDecimal;
+
+    @Column(name = "payment_id")
+    private Integer paymentId;
+
+    @CreatedDate
+    @Column(name = "created_on")
+    private Date createdOn;
+
+    @LastModifiedDate
+    @Column(name = "updated_on")
+    private Date updatedOn;
+
+    @Version
+    @Column(name = "version")
+    private Integer version;
+
+    @Column(name = "cart_config_id")
+    private Long cartConfigId=0l;
+
+    @Column(name = "user_exp")
+    private String userExp;
+
+    @Column(name = "express_delivery_fee")
+    private Long expressDeliveryFee = 0L;
+
+    @Column(name = "config")
+    private String config;
+
+    @Column(name = "entity_id")
+    private String entityId;
+
+    @Column(name = "promotion_preference")
+    @Convert(converter = DiscountPreferenceConverter.class)
+    private DiscountPreference promotionPreference = new DiscountPreference();
+
+    public BigDecimal getDeliveryFeeValue() {
+        if (Objects.nonNull(deliveryFeeDecimal)) {
+            return deliveryFeeDecimal;
+        }
+        if (Objects.nonNull(deliveryFee)) {
+            return BigDecimal.valueOf(deliveryFee);
+        }
+        return BigDecimal.ZERO;
+    }
+
+    public void setDeliveryFeeValue(BigDecimal fee) {
+        if (Objects.nonNull(fee)) {
+            this.deliveryFeeDecimal = fee;
+            this.deliveryFee = fee.doubleValue();
+        } else {
+            this.deliveryFeeDecimal = null;
+            this.deliveryFee = 0.0;
+        }
+    }
+}
+
+=== IMPORT com.dealshare.service.cartservice.entities.User ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/entities/User.java
+
+@Entity
+@Data
+@Table(name = "user")
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class User implements Serializable {
+
+    @Id
+    @GeneratedValue
+    @Column(name = "id")
+    private Long id;
+
+    @Column(name = "phone")
+    private String phoneNumber;
+
+    @Column(name = "name")
+    private String name;
+
+    @Column(name = "username")
+    private String username;
+
+    @Column(name = "lang")
+    private String lang;
+
+    @Column(name = "share_token")
+    private String shareToken;
+
+    @Column(name = "auth_key")
+    private String authKey;
+
+    @Column(name = "pincode")
+    private Long pincode;
+
+    @Column(name = "user_rank")
+    private String userRank;
+
+    @Column(name = "city")
+    private Integer city;
+
+    @Column(name = "state")
+    private Integer state;
+
+    @Column(name = "last_name")
+    private String lastName;
+
+    @Transient
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private List<String> userSegments;
+
+}
+
+=== IMPORT com.dealshare.service.cartservice.feignclients.ChatServiceClient ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/feignclients/ChatServiceClient.java
+
+@FeignClient(name = "chat-service", url = "${server.chat-service.url}")
+public interface ChatServiceClient {
+
+    @PostMapping("/v1/email/send")
+    void sendEmail(@RequestBody Map<String, String> sendEmailMap);
+
+    @PostMapping(value = "/v1/send-gupshup-sms", consumes = MediaType.APPLICATION_JSON_VALUE)
+    ResponseEntity<?> sendCancelSMS(@RequestBody CancelOrderModel cancelOrderModel);
+
+    @Async
+    @PostMapping("/v1/email/send")
+    void sendEmailToMultiple(@RequestBody Map<String, Object> sendEmailMap);
+
+    @Async
+    @GetMapping(value = "/v1/send-message")
+    JsonNode sendWhatsappMessage(@RequestBody WhatsappMessageRequestModel whatsappMessageRequestModel);
+
+    @Async
+    @PostMapping(value = "/v1/send-gupshup-sms", consumes = MediaType.APPLICATION_JSON_VALUE)
+    ResponseEntity<?> sendSMS(@RequestBody SmsRequestBody SmsRequestBody);
+
+    @PostMapping(value = "/v1/email/send-attachment-new", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    void sendEmailWithAttachment(
+            @RequestParam("to") String to,
+            @RequestParam("subject") String subject,
+            @RequestParam("content") String content,
+            @RequestPart("file") Resource file
+    );
+}
+
+=== IMPORT com.dealshare.service.cartservice.models.OrderStatusChangeCommModel ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/models/OrderStatusChangeCommModel.java
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class OrderStatusChangeCommModel {
+    private Long orderId;
+    private String templateName;
+    private Float refundAmount;
+}
+
+=== IMPORT com.dealshare.service.cartservice.models.SmsRequestBody ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/models/SmsRequestBody.java
+
+@Data
+@Builder
+public class SmsRequestBody {
+
+    private String smsTemplate;
+
+    private String phone;
+
+    private Map<String,String> postData;
+
+    private String source;
+
+    private Integer vendor;
+
+    private String messageType ;
+}
+
+=== IMPORT com.dealshare.service.cartservice.services.impl.KafkaProducer ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/services/impl/KafkaProducer.java
+
+@Slf4j
+@Service
+public class KafkaProducer implements QueueProducer {
+
+    @Autowired
+    KafkaTemplate<String, KafkaCancellationRequestModel> ingestionKafkaTemplate;
+
+    @Autowired
+    KafkaTemplate<String, CancelOrderSellerSyncModel> cancelOrderSellerSyncModelKafkaTemplate;
+
+    @Autowired
+    private KafkaTemplate<String, String> commonKafkaTemplate;
+
+    @Value(value = "${kafka.topic-name.ordercancel}")
+    String topicName;
+
+    @Value(value = "${kafka.cart-update-events}")
+    String thirdPartyKafkaTopicName;
+
+    @Value(value = "${kafka.topic-name.user-order-trust-sentinel-topic}")
+    String userOrderTrustSentinelEvent;
+
+    @Value("${kafka.topic-name.cancelordersellersync}")
+    String cacnelOrderSellerSyncTopic;
+
+    @Value("${kafka.topic-name.orders-status-update-topic}")
+    private String ordersStatusUpdateTopic;
+
+    @Value("${kafka-topic-name-post-order-sms}")
+    private String ordersStatusTransitionTopic;
+
+    @Override
+    public void produceOrderCancellationSyncEvent(KafkaCancellationRequestModel payLoad){
+        Object response= this.ingestionKafkaTemplate.send(topicName, payLoad);
+    }
+
+    @Override
+    public void produceThirdPartySyncEvent(ThirdPartyDataPushEventModel payLoad){
+        try {
+            String data = CommonUtils.serialize(payLoad);
+            commonKafkaTemplate.send(thirdPartyKafkaTopicName, data);
+        } catch(Exception e) {
+            log.error("Unable to send event for third party: {}, Exception: {}", payLoad, e.getMessage());
+        }
+    }
+
+    @Override
+    public void sendUserOrderTrustSentinelEvent(OrderTrustSentinelEvent payLoad){
+        try {
+            String data = CommonUtils.serialize(payLoad);
+            commonKafkaTemplate.send(userOrderTrustSentinelEvent, data);
+        } catch(Exception e) {
+            log.error("Unable to send event for sendUserOrderTrustSentinelEvent: {}, Exception: {}", payLoad, e.getMessage());
+        }
+    }
+
+
+    @Override
+    public void pushOrderCancelToSellerSync(CancelOrderSellerSyncModel payload){
+        cancelOrderSellerSyncModelKafkaTemplate.send(cacnelOrderSellerSyncTopic, payload);
+    }
+
+    @Async
+    @Override
+    public void sendOrdersStatusUpdateTopic(OrdersStatusUpdateEvent ordersStatusUpdateEvent) {
+        try {
+            String payload = CommonUtils.serialize(ordersStatusUpdateEvent);
+            commonKafkaTemplate.send(ordersStatusUpdateTopic, payload);
+        } catch(Exception e) {
+            log.error("Unable to send message: {}, Exception: {}", ordersStatusUpdateEvent, e.getMessage());
+        }
+    }
+
+    @Async
+    @Override
+    public void sendOrderPlacedUserSMSCommunicationEvent(OrderUpdateEventDetail orderUpdateEventDetail) {
+        try {
+            String payload = CommonUtils.serialize(orderUpdateEventDetail);
+            commonKafkaTemplate.send(ordersStatusTransitionTopic, payload);
+        } catch(Exception e) {
+            log.error("Unable to send message: {}, Exception: {}", orderUpdateEventDetail, e.getMessage());
+        }
+    }
+
+
+    @Async
+    public void raiseKafkaEvents(String topic, Object data) {
+        try {
+            String payload = CommonUtils.serialize(data);
+            commonKafkaTemplate.send(topic, payload);
+        } catch(Exception e) {
+            log.error("Error while producing event: {}, Exception: {}", data, e.getMessage());
+        }
+    }
+
+}
+
+=== IMPORT com.dealshare.service.cartservice.services.impl.SqsPublisherService ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/services/impl/SqsPublisherService.java
+
+@Slf4j
+@Service
+public class SqsPublisherService {
+
+    @Value("${sqs.name}")
+    private String queueName;
+
+    @Autowired
+    private SqsPublisher sqsPublisher;
+
+    public void publishMessage(Object obj){
+        sqsPublisher.sendMessage(queueName, obj);
+    }
+
+    public void publishMessage(String queueName, Object obj){
+        try{
+            sqsPublisher.sendMessage(queueName, obj);
+        }catch (Exception e){
+            log.error("Exception in sending message, Exception : {}, QueueName : {}, Object : {}", e.getMessage(), queueName, obj);
+        }
+    }
+
+}
+
+=== IMPORT com.dealshare.service.cartservice.services.util.EmailSenderService ===
+# /home/ubuntu/repo/cart-service/src/main/java/com/dealshare/service/cartservice/services/util/EmailSenderService.java
+
+@Slf4j
+@Service
+public class EmailSenderService {
+    private final RestTemplate restTemplate = new RestTemplate();
+
+    @Value("${server.chat-service.url}")
+    private String chatServiceUrl;
+
+    public void sendEmailWithAttachment(String to, String subject, String content,String fileName, byte[] fileContent) {
+        try {
+            ByteArrayResource resource = new ByteArrayResource(fileContent) {
+                @Override
+                public String getFilename() {
+                    return fileName;
+                }
+            };
+
+            HttpHeaders fileHeaders = new HttpHeaders();
+            fileHeaders.setContentDisposition(
+                    ContentDisposition.builder("form-data")
+                            .name("file")
+                            .filename(fileName)
+                            .build()
+            );
+            fileHeaders.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+
+            HttpEntity<Resource> fileEntity = new HttpEntity<>(resource, fileHeaders);
+
+            MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+
+            StringBuilder toBuilder = new StringBuilder();
+
+            if (to != null && !to.trim().isEmpty()) {
+                toBuilder.append(to);
+            }
+
+            for (String email : LPG_RECIPIENTS) {
+                if (toBuilder.length() > 0) {
+                    toBuilder.append(",");
+                }
+                toBuilder.append(email);
+            }
+
+            to = toBuilder.toString();
+            body.add("to",to);
+            body.add("subject", subject);
+            body.add("content", content);
+            body.add("file", fileEntity);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+            HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+
+            String endpoint = chatServiceUrl.endsWith("/") ?
+                    chatServiceUrl + "v1/email/send-attachment-new" :
+                    chatServiceUrl + "/v1/email/send-attachment-new";
+            ResponseEntity<String> response = restTemplate.postForEntity(endpoint, requestEntity, String.class);
+
+        } catch (Exception e) {
+            System.err.println("Error sending email: " + e.getMessage());
+        }
+    }
+}
+
+
+                        

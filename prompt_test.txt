@@ -1,0 +1,9 @@
+Important Rules:
+* Do not include any extra fields such as markup, type, or id.
+* Output only valid JSON objects (no trailing commas, no escaped apostrophes ).
+* Use normal single quotes in text (' ) — no backslashes before them.
+* Each comment must be a standalone JSON object, separated by a blank line.
+* Do not include any explanations, markdown formatting, or plain text — only pure JSON.
+* The comments must reflect a senior-level review: analyzing logic, performance, readability, test coverage, and correctness.
+* Ensure feedback is specific to the code line and the surrounding logic visible in the diff/context.
+
