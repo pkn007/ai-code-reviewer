@@ -28,7 +28,6 @@ if len(sys.argv) < 2:
     sys.exit(1)
 
 REPO_URL = sys.argv[1]
-#WEBHOOK_BASE = "https://hematoxylic-sonja-untragically.ngrok-free.dev"
 WEBHOOK_BASE = "https://codereviewer.dealshare.in"
 # ------------------------------------------------------
 # PARSE REPO URL → workspace + repo_slug

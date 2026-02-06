@@ -23,7 +23,7 @@ def load_latest_commit(workspace: str, repo: str, pr_id: int) -> str:
     try:
         with open(path, "r") as f:
             return f.read().strip() or None
-    except:
+    except Exception:
         return None
 
 

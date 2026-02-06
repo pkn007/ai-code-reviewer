@@ -123,7 +123,7 @@ def find_reverse_dependencies(repo_path, target_fqn, include_tests=False):
                     if combined_re.search(text):
                         results.append(path)
             except Exception:
-                continue
+                pass
     return list(set(results))
 
 
@@ -145,7 +145,7 @@ def find_bean_configurations(repo_path, target_class_name):
                 ):
                     results.append(path)
             except Exception:
-                continue
+                pass
     return results
 
 
@@ -199,7 +199,7 @@ def recursive_reverse_dependencies(
                 )
                 results.extend(sub_results)
         except Exception:
-            continue
+            pass
     return list(set(results))
 
 

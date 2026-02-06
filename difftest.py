@@ -109,7 +109,7 @@ async def main():
     )
 
     print("\n================ DIFF RESULT ================")
-    print("Incremental?" , is_incremental)
+    print("Incremental?", is_incremental)
     print("Diff length:", len(diff_text))
 
     print("\n---- FIRST 400 chars ----")

@@ -3,17 +3,23 @@ import os
 import asyncio
 import logging
 import httpx
-import json, re, requests
-from anthropic import Anthropic
+import json
+import re
+import requests
+import time
+import subprocess
+import shutil
 from typing import Optional, List, Dict, Any
+from anthropic import Anthropic
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Header
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from diff import extract_changed_files_from_diff, fetch_incremental_or_full_diff
+from diff import (
+    extract_changed_files_from_diff,
+    fetch_incremental_or_full_diff,
+    extract_java_files_with_min_changes
+)
 from pr_history import load_latest_commit, save_latest_commit
-import time
-
-from diff import extract_java_files_with_min_changes
 
 MIN_NON_COMMENT_LINES = 6
 
@@ -63,7 +69,6 @@ app = FastAPI(title="bitbucket-webhook", version="2.0")
 BITBUCKET_ACCESS_TOKEN = None
 BITBUCKET_ACCESS_TOKEN_EXPIRY = 0
 
-import subprocess
 
 def update_local_repo(repo_path: str, branch: str, workspace: str, repo: str):
     """
@@ -138,7 +143,7 @@ def parse_json_objects(text):
                     # attempt JSON parse
                     try:
                         out.append(json.loads(body))
-                    except:
+                    except Exception:
                         pass
 
                     # reset for next object
@@ -295,7 +300,6 @@ async def webhook_handler(
     x_event_key: str = Header(None)
 ):
     payload = await request.json()
-    # logger.info(json.dumps(payload, indent=2))
 
     # Only handle PR creation/update events
     allowed = {"pullrequest:created", "pullrequest:updated", "pullrequest:reopened"}
@@ -324,15 +328,6 @@ async def webhook_handler(
         else:
             logger.info(f"New commit detected: {old_head} → {new_head}")
 
-        # Save new head
-        # diff_text, is_incremental = await fetch_incremental_or_full_diff(
-        #     workspace=workspace,
-        #     repo=repo,
-        #     pr_id=pr_id,
-        #     old_head=old_head,
-        #     new_head=new_head,
-        #     token=token
-        # )
         if old_head:
             cmd = ["git", "-C", repo_path, "diff", f"{old_head}..{new_head}"]
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -353,11 +348,6 @@ async def webhook_handler(
             f.write("\n\n")
             f.write(diff_text)
 
-        # if is_incremental:
-        #     changed_files = extract_changed_files_from_diff(diff_text)
-        # else:
-        #     changed_files = await fetch_bitbucket_pr_files(workspace, repo, pr_id)
-
         changed_files = extract_java_files_with_min_changes(
             diff_text,
             min_lines=MIN_NON_COMMENT_LINES,
@@ -371,56 +361,13 @@ async def webhook_handler(
 
         logger.info(f"Changed files ({'incremental' if is_incremental else 'full'}): {changed_files}")
 
-
-
-        # # 1. Fetch changed files
-        # changed_files = await fetch_bitbucket_pr_files(workspace, repo, pr_id)
-        # if not changed_files:
-        #     logger.info(f"🛑 No code changes detected — skipping PR #{pr_id}")
-        #     return
-
-        # # 2. Fetch diff
-        # diff_text = await fetch_bitbucket_pr_diff(workspace, repo, pr_id)
-        # diff_path = f"/home/ubuntu/diff/diff_PR_{pr_id}.patch"
-        # open(diff_path, "w").write(diff_text)
-
-
-        # 3. Run pipeline
+        # Run pipeline
         pipeline_result = await run_pipeline(changed_files, repo, source_branch)
 
         # ------------------------------------------------------
         # CONTEXT GENERATOR
         # ------------------------------------------------------
         from context import generate_java_context
-
-        # repo_path = f"/home/ubuntu/repo/{repo}"
-        # logger.info(f"🧠 Generating context for {repo_path} ...")
-        # # --- AUTO CLONE IF REPO IS MISSING ---
-        # if not os.path.isdir(repo_path):
-        #     logger.info(f"📥 Repository not found locally. Cloning into {repo_path}...")
-        #     clone_url = (
-        #         f"https://{BITBUCKET_GIT_USERNAME}:{BITBUCKET_GIT_APP_PASSWORD}"
-        #         f"@bitbucket.org/{workspace}/{repo}.git"
-        #     )
-
-        #     # ensure parent directory exists
-        #     os.makedirs("/home/ubuntu/repo", exist_ok=True)
-
-        #     import subprocess
-        #     result = subprocess.run(
-        #         ["git", "clone", clone_url, repo_path],
-        #         capture_output=True,
-        #         text=True
-        #     )
-
-        #     if result.returncode != 0:
-        #         logger.error(f"❌ Failed to clone repo: {result.stderr}")
-        #         raise HTTPException(500, f"Repository clone failed: {result.stderr}")
-
-        #     logger.info("✅ Clone completed successfully")
-        # else:
-        #     logger.info("📦 Local repository exists — skipping clone")
-
 
         logger.info(f"🧠 Generating context for {repo_path} ...")
 
@@ -435,9 +382,6 @@ async def webhook_handler(
             cleanup=True,
             return_string=True,
         )
-
-        # context_path = f"/home/ubuntu/context/context_PR_{pr_id}.txt"
-        # open(context_path, "w").write(context_text)
 
         # ------------------------------------------------------
         # SEND TO CLAUDE
@@ -554,6 +498,7 @@ async def webhook_handler(
             logger.info(f"Comment posted → {r.status_code}: {r.text[:200]}")
 
         logger.info(f"🏁 Completed processing PR #{pr_id}")
+
     background_tasks.add_task(process)
     return {"status": "accepted", "event": x_event_key}
 
@@ -561,6 +506,7 @@ async def webhook_handler(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
 
 @app.post("/prmerge")
 async def pr_merged_handler(
@@ -591,7 +537,6 @@ async def pr_merged_handler(
         # -------------------------------------------------------------------
         if os.path.isdir(repo_path):
             logger.info(f"🗑️ Removing old repo clone: {repo_path}")
-            import shutil
             try:
                 shutil.rmtree(repo_path)
                 logger.info("✅ Old clone removed successfully")
@@ -614,7 +559,6 @@ async def pr_merged_handler(
 
         os.makedirs("/home/ubuntu/repo", exist_ok=True)
 
-        import subprocess
         result = subprocess.run(
             ["git", "clone", clone_url, repo_path],
             capture_output=True,

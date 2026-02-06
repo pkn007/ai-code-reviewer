@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 import httpx
 import re
-from typing import List
+from typing import Dict, List
 
 async def fetch_incremental_or_full_diff(
     workspace: str,
@@ -16,10 +17,10 @@ async def fetch_incremental_or_full_diff(
     - If old_head is None → full PR diff
     - If old_head exists   → incremental diff old_head..new_head
     """
-
     headers = {
         "Authorization": f"Bearer {token}",
-        "Accept": "application/octet-stream"
+        "Accept": "application/octet-stream",
+        "Cache-Control": "no-cache",
     }
 
     base = f"https://api.bitbucket.org/2.0/repositories/{workspace}/{repo}"
@@ -37,11 +38,7 @@ async def fetch_incremental_or_full_diff(
 
     async with httpx.AsyncClient() as client:
         resp = await client.get(url, headers=headers)
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/octet-stream",
-        "Cache-Control": "no-cache",
-    }
+
     # If incremental is unsupported or fails → fallback to full diff
     if resp.status_code != 200:
         fallback = f"{base}/pullrequests/{pr_id}/diff"
@@ -51,12 +48,12 @@ async def fetch_incremental_or_full_diff(
 
     return resp.text, True
 
+
 def extract_changed_files_from_diff(diff_text: str) -> List[str]:
     """
     Parse raw unified diff text and extract list of changed file paths.
     Works for incremental diffs as well as full diffs.
     """
-
     files = set()
 
     # Example line:
@@ -68,8 +65,6 @@ def extract_changed_files_from_diff(diff_text: str) -> List[str]:
 
     return sorted(files)
 
-import re
-from typing import Dict, List
 
 # ---------- Regex ----------
 FILE_HEADER_RE = re.compile(r'^diff --git a/(.+?) b/(.+)$')
