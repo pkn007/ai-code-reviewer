@@ -141,6 +141,29 @@ def count_non_comment_java_changes(diff_lines: List[str]) -> int:
     return count
 
 
+def count_changes_for_file(diff_lines: List[str]) -> int:
+    """
+    Counts additions and deletions (non-empty lines) for any file.
+    Simpler than Java-specific comment filtering.
+    """
+    count = 0
+    for line in diff_lines:
+        # Only consider actual additions / deletions
+        if not (line.startswith("+") or line.startswith("-")):
+            continue
+
+        # Skip diff headers
+        if line.startswith("+++ ") or line.startswith("--- "):
+            continue
+
+        # Count non-empty lines
+        code = line[1:].strip()
+        if code:
+            count += 1
+
+    return count
+
+
 def extract_java_files_with_min_changes(
     diff_text: str,
     min_lines: int,
@@ -162,4 +185,28 @@ def extract_java_files_with_min_changes(
 
     return sorted(result)
 
+
+def extract_files_with_min_changes(
+    diff_text: str,
+    min_lines: int,
+    file_extensions: List[str],
+) -> List[str]:
+    """
+    Returns files (matching extensions) having >= min_lines of changes.
+    Works for full + incremental diffs.
+    Uses simple line counting (not comment-aware like Java).
+    """
+    result = []
+    files = split_diff_by_file(diff_text)
+
+    for file, lines in files.items():
+        # Check if file matches any of the extensions
+        if not any(file.endswith(ext) for ext in file_extensions):
+            continue
+
+        changed = count_changes_for_file(lines)
+        if changed >= min_lines:
+            result.append(file)
+
+    return sorted(result)
 

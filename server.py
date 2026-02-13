@@ -17,9 +17,20 @@ from dotenv import load_dotenv
 from diff import (
     extract_changed_files_from_diff,
     fetch_incremental_or_full_diff,
-    extract_java_files_with_min_changes
+    extract_java_files_with_min_changes,
+    extract_files_with_min_changes
 )
 from pr_history import load_latest_commit, save_latest_commit
+
+# Code file extensions to process
+CODE_EXTENSIONS = {
+    '.py', '.java', '.js', '.ts', '.jsx', '.tsx', '.cpp', '.c', '.h', '.hpp',
+    '.cs', '.go', '.rs', '.rb', '.php', '.swift', '.kt', '.scala', '.clj',
+    '.sh', '.bash', '.zsh', '.yaml', '.yml', '.json', '.xml', '.sql'
+}
+
+# Non-code file extensions to skip
+SKIP_EXTENSIONS = {'.md', '.txt', '.log', '.lock', '.gitignore', '.gitattributes'}
 
 MIN_NON_COMMENT_LINES = 6
 
@@ -305,10 +316,17 @@ async def webhook_handler(
     allowed = {"pullrequest:created", "pullrequest:updated", "pullrequest:reopened"}
     if x_event_key not in allowed:
         return {"status": "ignored", "event": x_event_key}
+
+    # Check if PR is targeting master branch
+    pr = payload.get("pullrequest", {})
+    destination_branch = pr.get("destination", {}).get("branch", {}).get("name", "")
+    if destination_branch.lower() not in ["master", "main"]:
+        logger.info(f"🛑 PR not targeting master/main — skipping (target: {destination_branch})")
+        return {"status": "ignored", "reason": f"not targeting master/main, target: {destination_branch}"}
+
     async def process():
         repo = payload["repository"]["name"]
         workspace = payload["repository"]["workspace"]["slug"]
-        pr = payload["pullrequest"]
         pr_id = pr["id"]
         source_branch = pr["source"]["branch"]["name"]
         diff_url = pr["links"]["diff"]["href"]
@@ -319,7 +337,7 @@ async def webhook_handler(
 
         repo_path = f"/home/ubuntu/repo/{repo}"
 
-        logger.info(f"🔄 Syncing local repo before context generation...")
+        logger.info(f"🔄 Syncing local repo for diff generation...")
         update_local_repo(repo_path, source_branch, workspace, repo)
 
         if old_head == new_head:
@@ -348,40 +366,92 @@ async def webhook_handler(
             f.write("\n\n")
             f.write(diff_text)
 
-        changed_files = extract_java_files_with_min_changes(
-            diff_text,
-            min_lines=MIN_NON_COMMENT_LINES,
-        )
+        # Extract all changed files
+        all_changed_files = extract_changed_files_from_diff(diff_text)
+        
+        # Filter to only code files
+        code_files = [
+            f for f in all_changed_files
+            if any(f.endswith(ext) for ext in CODE_EXTENSIONS)
+            and not any(f.endswith(ext) for ext in SKIP_EXTENSIONS)
+        ]
 
-        if not changed_files:
+        if not code_files:
+            logger.info(f"🛑 No code files changed — skipping PR #{pr_id}")
+            return
+
+        # Separate Java files from other languages
+        java_files = [f for f in code_files if f.endswith(".java")]
+        other_files = [f for f in code_files if not f.endswith(".java")]
+
+        logger.info(f"Changed files ({'incremental' if is_incremental else 'full'}): {len(code_files)} total")
+        logger.info(f"  Java files: {len(java_files)}, Other languages: {len(other_files)}")
+
+        # For Java files, check minimum non-comment lines (comment-aware)
+        if java_files:
+            java_files_with_changes = extract_java_files_with_min_changes(
+                diff_text,
+                min_lines=MIN_NON_COMMENT_LINES,
+            )
+        else:
+            java_files_with_changes = []
+
+        # For other languages, check minimum changes (simple line count)
+        other_files_with_changes = []
+        if other_files:
+            # Get extensions for non-Java files
+            other_extensions = list(set(
+                ext for f in other_files
+                for ext in CODE_EXTENSIONS
+                if f.endswith(ext) and ext != ".java"
+            ))
+            if other_extensions:
+                other_files_with_changes = extract_files_with_min_changes(
+                    diff_text,
+                    min_lines=MIN_NON_COMMENT_LINES,
+                    file_extensions=other_extensions,
+                )
+
+        # Check if we have any files that meet the minimum change threshold
+        if not java_files_with_changes and not other_files_with_changes:
             logger.info(
-                f"🛑 No Java files with ≥ {MIN_NON_COMMENT_LINES} non-comment changes — skipping PR #{pr_id}"
+                f"🛑 No files with ≥ {MIN_NON_COMMENT_LINES} changes — skipping PR #{pr_id}"
             )
             return
 
-        logger.info(f"Changed files ({'incremental' if is_incremental else 'full'}): {changed_files}")
+        # Determine if we need context generation (only for Java files)
+        needs_context = len(java_files_with_changes) > 0
+        files_to_review = java_files_with_changes + other_files_with_changes
+
+        if not files_to_review:
+            logger.info(f"🛑 No files to review — skipping PR #{pr_id}")
+            return
 
         # Run pipeline
-        pipeline_result = await run_pipeline(changed_files, repo, source_branch)
+        pipeline_result = await run_pipeline(files_to_review, repo, source_branch)
 
         # ------------------------------------------------------
-        # CONTEXT GENERATOR
+        # CONTEXT GENERATOR (only for Java files)
         # ------------------------------------------------------
-        from context import generate_java_context
+        context_text = ""
+        if needs_context:
+            from context import generate_java_context
 
-        logger.info(f"🧠 Generating context for {repo_path} ...")
+            logger.info(f"🧠 Generating context for {len(java_files_with_changes)} Java files...")
 
-        context_text = generate_java_context(
-            repo=repo_path,
-            branch=source_branch,
-            files=changed_files,
-            output=f"/home/ubuntu/context/context_PR_{pr_id}.txt",
-            depth=0,
-            include_tests=False,
-            reverse_limit=10,
-            cleanup=True,
-            return_string=True,
-        )
+            context_text = generate_java_context(
+                repo=repo_path,
+                branch=source_branch,
+                files=java_files_with_changes,
+                output=f"/home/ubuntu/context/context_PR_{pr_id}.txt",
+                depth=0,
+                include_tests=False,
+                reverse_limit=10,
+                cleanup=True,
+                return_string=True,
+            )
+        else:
+            logger.info("ℹ️ Skipping context generation for non-Java files")
 
         # ------------------------------------------------------
         # SEND TO CLAUDE
@@ -389,8 +459,15 @@ async def webhook_handler(
 
         with open("prompt_rules.txt", "r") as f:
             prompt_rules = f.read().strip()
+        
+        # Build prompt based on whether we have context (Java) or not (other languages)
+        if context_text:
+            prompt_intro = """You are given a PR diff and a context file. Analyze the code changes as a senior backend developer, deeply reviewing both the diff and the context file to provide insightful, high-quality comments. Focus on correctness, maintainability, performance, null-safety, consistency, and architectural implications. Comments should be concise, professional, and actionable, without restating the diff."""
+        else:
+            prompt_intro = """You are given a PR diff. Analyze the code changes as a senior backend developer, providing insightful, high-quality comments. Focus on correctness, maintainability, performance, consistency, and architectural implications. Comments should be concise, professional, and actionable, without restating the diff."""
+        
         prompt = f"""
-                        You are given a PR diff and a context file. Analyze the code changes as a senior backend developer, deeply reviewing both the diff and the context file to provide insightful, high-quality comments. Focus on correctness, maintainability, performance, null-safety, consistency, and architectural implications. Comments should be concise, professional, and actionable, without restating the diff.
+                        {prompt_intro}
 
                         For each comment, output only the JSON body (no curl commands, no headers, no additional text) in the exact format below:
 
@@ -436,7 +513,11 @@ async def webhook_handler(
                         PR Diff:
 
                         {diff_text}
-
+                        """
+        
+        # Add context only if it was generated (for Java files)
+        if context_text:
+            prompt += f"""
                         Context File:
 
                         {context_text}
