@@ -3,7 +3,10 @@ import os
 import re
 import tempfile
 import shutil
+import logging
 from git import Repo # type: ignore
+
+logger = logging.getLogger("context")
 
 # --- Regex patterns ---
 IMPORT_RE = re.compile(r'^\s*import\s+([a-zA-Z0-9_.*]+)\s*;\s*$', re.MULTILINE)
@@ -20,12 +23,12 @@ TYPE_RE = re.compile(
 def clone_repo(repo_url, branch="master"):
     """Clone a remote repo into a temporary folder."""
     tmp = tempfile.mkdtemp(prefix="context_repo_")
-    print(f"📥 Cloning {repo_url} (branch: {branch}) → {tmp}")
+    logger.info(f"📥 Cloning {repo_url} (branch: {branch}) → {tmp}")
     repo = Repo.clone_from(repo_url, tmp)
     try:
         repo.git.checkout(branch)
     except Exception:
-        print(f"⚠️ Branch '{branch}' not found — using default branch instead.")
+        logger.warning(f"⚠️ Branch '{branch}' not found — using default branch instead.")
     return tmp
 
 
@@ -214,13 +217,13 @@ def prepare_context_multi(
     for target_file_path in target_files:
         target_full_path = os.path.join(repo_path, target_file_path)
         if not os.path.exists(target_full_path):
-            print(f"⚠️ Skipping missing file: {target_file_path}")
+            logger.warning(f"⚠️ Skipping missing file: {target_file_path}")
             continue
 
-        print(f"📦 Analyzing {target_file_path}")
+        logger.info(f"📦 Analyzing {target_file_path}")
         code = open(target_full_path, "r", encoding="utf-8", errors="ignore").read()
         imports, used_identifiers = extract_imports_and_used(code)
-        print(f"📦 Found {len(imports)} imports, {len(used_identifiers)} identifiers")
+        logger.info(f"📦 Found {len(imports)} imports, {len(used_identifiers)} identifiers")
 
         pkg_match = PACKAGE_RE.search(code)
         type_match = TYPE_RE.search(code)
@@ -263,12 +266,12 @@ def prepare_context_multi(
     context_text = f"# Context for {len(target_files)} files\n# Repo: {repo_path}\n\n" + "".join(output_chunks)
 
     if return_string:
-        print(f"✅ Generated context in memory ({len(seen_files)} unique files)")
+        logger.info(f"✅ Generated context in memory ({len(seen_files)} unique files)")
         return context_text
 
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(context_text)
-    print(f"✅ Context saved to {output_file} ({len(seen_files)} files)")
+    logger.info(f"✅ Context saved to {output_file} ({len(seen_files)} files)")
     return {"output": output_file, "files": len(seen_files)}
 
 
@@ -290,7 +293,7 @@ def generate_java_context(
     )
 
     if cleanup and temp_repo:
-        print(f"🧹 Cleaning up {temp_repo}")
+        logger.info(f"🧹 Cleaning up {temp_repo}")
         shutil.rmtree(temp_repo)
 
     return result
@@ -326,6 +329,6 @@ if __name__ == "__main__":
     )
 
     if isinstance(result, str):
-        print("\n--- Context Preview (first 500 chars) ---\n")
-        print(result)
+        logger.info("\n--- Context Preview (first 500 chars) ---\n")
+        logger.info(result)
 

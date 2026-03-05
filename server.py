@@ -660,4 +660,4 @@ async def pr_merged_handler(
 if __name__ == "__main__":
     import uvicorn
     print("🚀 Starting webhook at port 8080...")
-    uvicorn.run("server:app", host="0.0.0.0", port=8080)
+    uvicorn.run("server:app", host="0.0.0.0", port=8080, access_log=False)
