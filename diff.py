@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 import httpx
 import re
-from typing import List
+from typing import Dict, List
 
 async def fetch_incremental_or_full_diff(
     workspace: str,
@@ -16,10 +17,10 @@ async def fetch_incremental_or_full_diff(
     - If old_head is None → full PR diff
     - If old_head exists   → incremental diff old_head..new_head
     """
-
     headers = {
         "Authorization": f"Bearer {token}",
-        "Accept": "application/octet-stream"
+        "Accept": "application/octet-stream",
+        "Cache-Control": "no-cache",
     }
 
     base = f"https://api.bitbucket.org/2.0/repositories/{workspace}/{repo}"
@@ -37,11 +38,7 @@ async def fetch_incremental_or_full_diff(
 
     async with httpx.AsyncClient() as client:
         resp = await client.get(url, headers=headers)
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/octet-stream",
-        "Cache-Control": "no-cache",
-    }
+
     # If incremental is unsupported or fails → fallback to full diff
     if resp.status_code != 200:
         fallback = f"{base}/pullrequests/{pr_id}/diff"
@@ -51,12 +48,12 @@ async def fetch_incremental_or_full_diff(
 
     return resp.text, True
 
+
 def extract_changed_files_from_diff(diff_text: str) -> List[str]:
     """
     Parse raw unified diff text and extract list of changed file paths.
     Works for incremental diffs as well as full diffs.
     """
-
     files = set()
 
     # Example line:
@@ -68,8 +65,6 @@ def extract_changed_files_from_diff(diff_text: str) -> List[str]:
 
     return sorted(files)
 
-import re
-from typing import Dict, List
 
 # ---------- Regex ----------
 FILE_HEADER_RE = re.compile(r'^diff --git a/(.+?) b/(.+)$')
@@ -146,6 +141,29 @@ def count_non_comment_java_changes(diff_lines: List[str]) -> int:
     return count
 
 
+def count_changes_for_file(diff_lines: List[str]) -> int:
+    """
+    Counts additions and deletions (non-empty lines) for any file.
+    Simpler than Java-specific comment filtering.
+    """
+    count = 0
+    for line in diff_lines:
+        # Only consider actual additions / deletions
+        if not (line.startswith("+") or line.startswith("-")):
+            continue
+
+        # Skip diff headers
+        if line.startswith("+++ ") or line.startswith("--- "):
+            continue
+
+        # Count non-empty lines
+        code = line[1:].strip()
+        if code:
+            count += 1
+
+    return count
+
+
 def extract_java_files_with_min_changes(
     diff_text: str,
     min_lines: int,
@@ -167,4 +185,28 @@ def extract_java_files_with_min_changes(
 
     return sorted(result)
 
+
+def extract_files_with_min_changes(
+    diff_text: str,
+    min_lines: int,
+    file_extensions: List[str],
+) -> List[str]:
+    """
+    Returns files (matching extensions) having >= min_lines of changes.
+    Works for full + incremental diffs.
+    Uses simple line counting (not comment-aware like Java).
+    """
+    result = []
+    files = split_diff_by_file(diff_text)
+
+    for file, lines in files.items():
+        # Check if file matches any of the extensions
+        if not any(file.endswith(ext) for ext in file_extensions):
+            continue
+
+        changed = count_changes_for_file(lines)
+        if changed >= min_lines:
+            result.append(file)
+
+    return sorted(result)
 

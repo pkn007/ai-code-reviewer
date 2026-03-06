@@ -3,17 +3,34 @@ import os
 import asyncio
 import logging
 import httpx
-import json, re, requests
-from anthropic import Anthropic
+import json
+import re
+import requests
+import time
+import subprocess
+import shutil
 from typing import Optional, List, Dict, Any
+from anthropic import Anthropic
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Header
 from pydantic import BaseModel
 from dotenv import load_dotenv
-from diff import extract_changed_files_from_diff, fetch_incremental_or_full_diff
+from diff import (
+    extract_changed_files_from_diff,
+    fetch_incremental_or_full_diff,
+    extract_java_files_with_min_changes,
+    extract_files_with_min_changes
+)
 from pr_history import load_latest_commit, save_latest_commit
-import time
 
-from diff import extract_java_files_with_min_changes
+# Code file extensions to process
+CODE_EXTENSIONS = {
+    '.py', '.java', '.js', '.ts', '.jsx', '.tsx', '.cpp', '.c', '.h', '.hpp',
+    '.cs', '.go', '.rs', '.rb', '.php', '.swift', '.kt', '.scala', '.clj',
+    '.sh', '.bash', '.zsh', '.yaml', '.yml', '.json', '.xml', '.sql'
+}
+
+# Non-code file extensions to skip
+SKIP_EXTENSIONS = {'.md', '.txt', '.log', '.lock', '.gitignore', '.gitattributes'}
 
 MIN_NON_COMMENT_LINES = 6
 
@@ -63,7 +80,6 @@ app = FastAPI(title="bitbucket-webhook", version="2.0")
 BITBUCKET_ACCESS_TOKEN = None
 BITBUCKET_ACCESS_TOKEN_EXPIRY = 0
 
-import subprocess
 
 def update_local_repo(repo_path: str, branch: str, workspace: str, repo: str):
     """
@@ -138,7 +154,7 @@ def parse_json_objects(text):
                     # attempt JSON parse
                     try:
                         out.append(json.loads(body))
-                    except:
+                    except Exception:
                         pass
 
                     # reset for next object
@@ -295,16 +311,22 @@ async def webhook_handler(
     x_event_key: str = Header(None)
 ):
     payload = await request.json()
-    # logger.info(json.dumps(payload, indent=2))
 
     # Only handle PR creation/update events
     allowed = {"pullrequest:created", "pullrequest:updated", "pullrequest:reopened"}
     if x_event_key not in allowed:
         return {"status": "ignored", "event": x_event_key}
+
+    # Check if PR is targeting master branch
+    pr = payload.get("pullrequest", {})
+    destination_branch = pr.get("destination", {}).get("branch", {}).get("name", "")
+    if destination_branch.lower() not in ["master", "main"]:
+        logger.info(f"🛑 PR not targeting master/main — skipping (target: {destination_branch})")
+        return {"status": "ignored", "reason": f"not targeting master/main, target: {destination_branch}"}
+
     async def process():
         repo = payload["repository"]["name"]
         workspace = payload["repository"]["workspace"]["slug"]
-        pr = payload["pullrequest"]
         pr_id = pr["id"]
         source_branch = pr["source"]["branch"]["name"]
         diff_url = pr["links"]["diff"]["href"]
@@ -315,7 +337,7 @@ async def webhook_handler(
 
         repo_path = f"/home/ubuntu/repo/{repo}"
 
-        logger.info(f"🔄 Syncing local repo before context generation...")
+        logger.info(f"🔄 Syncing local repo for diff generation...")
         update_local_repo(repo_path, source_branch, workspace, repo)
 
         if old_head == new_head:
@@ -324,15 +346,6 @@ async def webhook_handler(
         else:
             logger.info(f"New commit detected: {old_head} → {new_head}")
 
-        # Save new head
-        # diff_text, is_incremental = await fetch_incremental_or_full_diff(
-        #     workspace=workspace,
-        #     repo=repo,
-        #     pr_id=pr_id,
-        #     old_head=old_head,
-        #     new_head=new_head,
-        #     token=token
-        # )
         if old_head:
             cmd = ["git", "-C", repo_path, "diff", f"{old_head}..{new_head}"]
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -353,91 +366,92 @@ async def webhook_handler(
             f.write("\n\n")
             f.write(diff_text)
 
-        # if is_incremental:
-        #     changed_files = extract_changed_files_from_diff(diff_text)
-        # else:
-        #     changed_files = await fetch_bitbucket_pr_files(workspace, repo, pr_id)
+        # Extract all changed files
+        all_changed_files = extract_changed_files_from_diff(diff_text)
+        
+        # Filter to only code files
+        code_files = [
+            f for f in all_changed_files
+            if any(f.endswith(ext) for ext in CODE_EXTENSIONS)
+            and not any(f.endswith(ext) for ext in SKIP_EXTENSIONS)
+        ]
 
-        changed_files = extract_java_files_with_min_changes(
-            diff_text,
-            min_lines=MIN_NON_COMMENT_LINES,
-        )
+        if not code_files:
+            logger.info(f"🛑 No code files changed — skipping PR #{pr_id}")
+            return
 
-        if not changed_files:
+        # Separate Java files from other languages
+        java_files = [f for f in code_files if f.endswith(".java")]
+        other_files = [f for f in code_files if not f.endswith(".java")]
+
+        logger.info(f"Changed files ({'incremental' if is_incremental else 'full'}): {len(code_files)} total")
+        logger.info(f"  Java files: {len(java_files)}, Other languages: {len(other_files)}")
+
+        # For Java files, check minimum non-comment lines (comment-aware)
+        if java_files:
+            java_files_with_changes = extract_java_files_with_min_changes(
+                diff_text,
+                min_lines=MIN_NON_COMMENT_LINES,
+            )
+        else:
+            java_files_with_changes = []
+
+        # For other languages, check minimum changes (simple line count)
+        other_files_with_changes = []
+        if other_files:
+            # Get extensions for non-Java files
+            other_extensions = list(set(
+                ext for f in other_files
+                for ext in CODE_EXTENSIONS
+                if f.endswith(ext) and ext != ".java"
+            ))
+            if other_extensions:
+                other_files_with_changes = extract_files_with_min_changes(
+                    diff_text,
+                    min_lines=MIN_NON_COMMENT_LINES,
+                    file_extensions=other_extensions,
+                )
+
+        # Check if we have any files that meet the minimum change threshold
+        if not java_files_with_changes and not other_files_with_changes:
             logger.info(
-                f"🛑 No Java files with ≥ {MIN_NON_COMMENT_LINES} non-comment changes — skipping PR #{pr_id}"
+                f"🛑 No files with ≥ {MIN_NON_COMMENT_LINES} changes — skipping PR #{pr_id}"
             )
             return
 
-        logger.info(f"Changed files ({'incremental' if is_incremental else 'full'}): {changed_files}")
+        # Determine if we need context generation (only for Java files)
+        needs_context = len(java_files_with_changes) > 0
+        files_to_review = java_files_with_changes + other_files_with_changes
 
+        if not files_to_review:
+            logger.info(f"🛑 No files to review — skipping PR #{pr_id}")
+            return
 
-
-        # # 1. Fetch changed files
-        # changed_files = await fetch_bitbucket_pr_files(workspace, repo, pr_id)
-        # if not changed_files:
-        #     logger.info(f"🛑 No code changes detected — skipping PR #{pr_id}")
-        #     return
-
-        # # 2. Fetch diff
-        # diff_text = await fetch_bitbucket_pr_diff(workspace, repo, pr_id)
-        # diff_path = f"/home/ubuntu/diff/diff_PR_{pr_id}.patch"
-        # open(diff_path, "w").write(diff_text)
-
-
-        # 3. Run pipeline
-        pipeline_result = await run_pipeline(changed_files, repo, source_branch)
+        # Run pipeline
+        pipeline_result = await run_pipeline(files_to_review, repo, source_branch)
 
         # ------------------------------------------------------
-        # CONTEXT GENERATOR
+        # CONTEXT GENERATOR (only for Java files)
         # ------------------------------------------------------
-        from context import generate_java_context
+        context_text = ""
+        if needs_context:
+            from context import generate_java_context
 
-        # repo_path = f"/home/ubuntu/repo/{repo}"
-        # logger.info(f"🧠 Generating context for {repo_path} ...")
-        # # --- AUTO CLONE IF REPO IS MISSING ---
-        # if not os.path.isdir(repo_path):
-        #     logger.info(f"📥 Repository not found locally. Cloning into {repo_path}...")
-        #     clone_url = (
-        #         f"https://{BITBUCKET_GIT_USERNAME}:{BITBUCKET_GIT_APP_PASSWORD}"
-        #         f"@bitbucket.org/{workspace}/{repo}.git"
-        #     )
+            logger.info(f"🧠 Generating context for {len(java_files_with_changes)} Java files...")
 
-        #     # ensure parent directory exists
-        #     os.makedirs("/home/ubuntu/repo", exist_ok=True)
-
-        #     import subprocess
-        #     result = subprocess.run(
-        #         ["git", "clone", clone_url, repo_path],
-        #         capture_output=True,
-        #         text=True
-        #     )
-
-        #     if result.returncode != 0:
-        #         logger.error(f"❌ Failed to clone repo: {result.stderr}")
-        #         raise HTTPException(500, f"Repository clone failed: {result.stderr}")
-
-        #     logger.info("✅ Clone completed successfully")
-        # else:
-        #     logger.info("📦 Local repository exists — skipping clone")
-
-
-        logger.info(f"🧠 Generating context for {repo_path} ...")
-
-        context_text = generate_java_context(
-            repo=repo_path,
-            branch=source_branch,
-            files=changed_files,
-            output=f"/home/ubuntu/context/context_PR_{pr_id}.txt",
-            depth=0,
-            include_tests=False,
-            reverse_limit=10,
-            cleanup=True,
-            return_string=True,
-        )
-
-        # context_path = f"/home/ubuntu/context/context_PR_{pr_id}.txt"
-        # open(context_path, "w").write(context_text)
+            context_text = generate_java_context(
+                repo=repo_path,
+                branch=source_branch,
+                files=java_files_with_changes,
+                output=f"/home/ubuntu/context/context_PR_{pr_id}.txt",
+                depth=0,
+                include_tests=False,
+                reverse_limit=10,
+                cleanup=True,
+                return_string=True,
+            )
+        else:
+            logger.info("ℹ️ Skipping context generation for non-Java files")
 
         # ------------------------------------------------------
         # SEND TO CLAUDE
@@ -445,8 +459,15 @@ async def webhook_handler(
 
         with open("prompt_rules.txt", "r") as f:
             prompt_rules = f.read().strip()
+        
+        # Build prompt based on whether we have context (Java) or not (other languages)
+        if context_text:
+            prompt_intro = """You are given a PR diff and a context file. Analyze the code changes as a senior backend developer, deeply reviewing both the diff and the context file to provide insightful, high-quality comments. Focus on correctness, maintainability, performance, null-safety, consistency, and architectural implications. Comments should be concise, professional, and actionable, without restating the diff."""
+        else:
+            prompt_intro = """You are given a PR diff. Analyze the code changes as a senior backend developer, providing insightful, high-quality comments. Focus on correctness, maintainability, performance, consistency, and architectural implications. Comments should be concise, professional, and actionable, without restating the diff."""
+        
         prompt = f"""
-                        You are given a PR diff and a context file. Analyze the code changes as a senior backend developer, deeply reviewing both the diff and the context file to provide insightful, high-quality comments. Focus on correctness, maintainability, performance, null-safety, consistency, and architectural implications. Comments should be concise, professional, and actionable, without restating the diff.
+                        {prompt_intro}
 
                         For each comment, output only the JSON body (no curl commands, no headers, no additional text) in the exact format below:
 
@@ -492,7 +513,11 @@ async def webhook_handler(
                         PR Diff:
 
                         {diff_text}
-
+                        """
+        
+        # Add context only if it was generated (for Java files)
+        if context_text:
+            prompt += f"""
                         Context File:
 
                         {context_text}
@@ -554,6 +579,7 @@ async def webhook_handler(
             logger.info(f"Comment posted → {r.status_code}: {r.text[:200]}")
 
         logger.info(f"🏁 Completed processing PR #{pr_id}")
+
     background_tasks.add_task(process)
     return {"status": "accepted", "event": x_event_key}
 
@@ -561,6 +587,7 @@ async def webhook_handler(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
 
 @app.post("/prmerge")
 async def pr_merged_handler(
@@ -591,7 +618,6 @@ async def pr_merged_handler(
         # -------------------------------------------------------------------
         if os.path.isdir(repo_path):
             logger.info(f"🗑️ Removing old repo clone: {repo_path}")
-            import shutil
             try:
                 shutil.rmtree(repo_path)
                 logger.info("✅ Old clone removed successfully")
@@ -614,7 +640,6 @@ async def pr_merged_handler(
 
         os.makedirs("/home/ubuntu/repo", exist_ok=True)
 
-        import subprocess
         result = subprocess.run(
             ["git", "clone", clone_url, repo_path],
             capture_output=True,
@@ -635,4 +660,4 @@ async def pr_merged_handler(
 if __name__ == "__main__":
     import uvicorn
     print("🚀 Starting webhook at port 8080...")
-    uvicorn.run("server:app", host="0.0.0.0", port=8080)
+    uvicorn.run("server:app", host="0.0.0.0", port=8080, access_log=False)

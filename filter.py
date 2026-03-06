@@ -1,9 +1,9 @@
 def should_process_pr(payload):
-    print(payload)
     """
     Returns (True, reason) if the PR should be processed,
     or (False, reason) if it should be skipped.
     """
+    print(payload)
 
     pr = payload.get("pullrequest", {})
     pr_id = pr.get("id")
@@ -44,7 +44,7 @@ def should_process_pr(payload):
     # ---------------------------------------
     try:
         changed = pr["links"]["diffstat"]["href"]
-    except:
+    except Exception:
         pass  # fallback will check diff in background
 
     # OPTIONAL: If you want to skip small PRs:
