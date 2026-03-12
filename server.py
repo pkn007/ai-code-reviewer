@@ -320,7 +320,7 @@ async def webhook_handler(
     # Check if PR is targeting master branch
     pr = payload.get("pullrequest", {})
     destination_branch = pr.get("destination", {}).get("branch", {}).get("name", "")
-    if destination_branch.lower() not in ["master", "main"] or not destination_branch.lower().startswith("release/"):
+    if destination_branch.lower() not in ["master", "main"] and not destination_branch.lower().startswith("release/"):
         logger.info(f"🛑 PR not targeting master/main — skipping (target: {destination_branch})")
         return {"status": "ignored", "reason": f"not targeting master/main, target: {destination_branch}"}
 
