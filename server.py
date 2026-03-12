@@ -320,7 +320,7 @@ async def webhook_handler(
     # Check if PR is targeting master branch
     pr = payload.get("pullrequest", {})
     destination_branch = pr.get("destination", {}).get("branch", {}).get("name", "")
-    if destination_branch.lower() not in ["master", "main"] or not destination_branch.lower().startswith("release/"):
+    if destination_branch.lower() not in ["master", "main"] and not destination_branch.lower().startswith("release/"):
         logger.info(f"🛑 PR not targeting master/main — skipping (target: {destination_branch})")
         return {"status": "ignored", "reason": f"not targeting master/main, target: {destination_branch}"}
 
@@ -524,7 +524,7 @@ async def webhook_handler(
                         """
 
         client = Anthropic(api_key=CLAUDE_API_KEY)
-        model = "claude-sonnet-4-5-20250929"
+        model = "claude-sonnet-4-6"
 
         raw_prompt = f"/home/ubuntu/raw_prompt.txt"
         open(raw_prompt, "w").write(prompt)
@@ -540,7 +540,7 @@ async def webhook_handler(
 
         logger.info(f"Prompt tokens = {used_tokens}, trimmed = {trimmed}")
         claude_output = client.messages.create(
-            model="claude-sonnet-4-5-20250929",
+            model="claude-sonnet-4-6",
             max_tokens=4000,
             messages=[{"role": "user", "content": prompt}],
         ).content[0].text.strip()
