@@ -33,6 +33,9 @@ CODE_EXTENSIONS = {
 SKIP_EXTENSIONS = {'.md', '.txt', '.log', '.lock', '.gitignore', '.gitattributes'}
 
 MIN_NON_COMMENT_LINES = 6
+PRIMARY_TARGET_BRANCHES = {"master", "main"}
+POS_ADAPTER_SERVICE_REPO = "pos-adapter-service"
+POS_ADAPTER_SERVICE_EXTRA_TARGETS = {"dealshare_pos_core"}
 
 # ------------------------------------------------------
 # LOAD ENV
@@ -317,12 +320,21 @@ async def webhook_handler(
     if x_event_key not in allowed:
         return {"status": "ignored", "event": x_event_key}
 
-    # Check if PR is targeting master branch
+    # Check if PR target branch is allowed for this repository
     pr = payload.get("pullrequest", {})
+    repo = payload.get("repository", {}).get("name", "")
     destination_branch = pr.get("destination", {}).get("branch", {}).get("name", "")
-    if destination_branch.lower() not in ["master", "main"] and not destination_branch.lower().startswith("release/"):
-        logger.info(f"🛑 PR not targeting master/main — skipping (target: {destination_branch})")
-        return {"status": "ignored", "reason": f"not targeting master/main, target: {destination_branch}"}
+    destination_branch_lower = destination_branch.lower()
+    allowed_targets = set(PRIMARY_TARGET_BRANCHES)
+    if repo == POS_ADAPTER_SERVICE_REPO:
+        allowed_targets.update(POS_ADAPTER_SERVICE_EXTRA_TARGETS)
+
+    if destination_branch_lower not in allowed_targets and not destination_branch_lower.startswith("release/"):
+        logger.info(f"🛑 PR target not allowed — skipping (repo: {repo}, target: {destination_branch})")
+        return {
+            "status": "ignored",
+            "reason": f"target branch '{destination_branch}' not allowed for repo '{repo}'"
+        }
 
     async def process():
         repo = payload["repository"]["name"]
