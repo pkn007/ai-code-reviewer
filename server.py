@@ -34,6 +34,58 @@ SKIP_EXTENSIONS = {'.md', '.txt', '.log', '.lock', '.gitignore', '.gitattributes
 
 MIN_NON_COMMENT_LINES = 6
 PRIMARY_TARGET_BRANCHES = {"master", "main"}
+
+FRONTEND_PLATFORMS = {'android', 'ios', 'react', 'react_native', 'nextjs'}
+
+PLATFORM_PERSONA = {
+    'android':      'senior Android developer (Kotlin)',
+    'ios':          'senior iOS developer (Swift)',
+    'react':        'senior React developer',
+    'react_native': 'senior React Native developer',
+    'nextjs':       'senior Next.js developer',
+}
+
+PLATFORM_FOCUS = {
+    'android': (
+        'correctness, lifecycle management, memory leaks, coroutine safety, '
+        'null safety, and architectural patterns (MVVM/Clean Architecture)'
+    ),
+    'ios': (
+        'correctness, memory management, retain cycles, Swift concurrency, '
+        'protocol conformance, and architectural patterns (MVC/MVVM/VIPER)'
+    ),
+    'react': (
+        'correctness, React hooks rules, state management, performance (unnecessary re-renders), '
+        'component design, type safety, and accessibility'
+    ),
+    'react_native': (
+        'correctness, React hooks rules, cross-platform compatibility, '
+        'performance, native bridge usage, and accessibility'
+    ),
+    'nextjs': (
+        'correctness, rendering strategy (SSR/SSG/ISR), React hooks rules, '
+        'performance, routing patterns, and type safety'
+    ),
+}
+
+
+def get_frontend_prompt_intro(platform: str, has_context: bool = False) -> str:
+    context_note = (
+        " You are also given a context file showing related code."
+        if has_context else ""
+    )
+    persona = PLATFORM_PERSONA.get(platform, 'senior frontend developer')
+    focus = PLATFORM_FOCUS.get(
+        platform,
+        'correctness, performance, maintainability, type safety, and accessibility'
+    )
+    return (
+        f"You are given a PR diff.{context_note} Analyze the code changes as a {persona}, "
+        f"providing insightful, high-quality comments. Focus on {focus}. "
+        f"Comments should be concise, professional, and actionable, without restating the diff."
+    )
+
+
 POS_ADAPTER_SERVICE_REPO = "pos-adapter-service"
 POS_ADAPTER_SERVICE_EXTRA_TARGETS = {"dealshare_pos_core"}
 
@@ -443,6 +495,15 @@ async def webhook_handler(
         pipeline_result = await run_pipeline(files_to_review, repo, source_branch)
 
         # ------------------------------------------------------
+        # FRONTEND PLATFORM DETECTION
+        # ------------------------------------------------------
+        from frontend_context import detect_platform, is_frontend_file
+
+        platform = detect_platform(files_to_review)
+        is_frontend = platform in FRONTEND_PLATFORMS
+        logger.info(f"🖥️ Detected platform: {platform}")
+
+        # ------------------------------------------------------
         # CONTEXT GENERATOR (only for Java files)
         # ------------------------------------------------------
         context_text = ""
@@ -463,7 +524,31 @@ async def webhook_handler(
                 return_string=True,
             )
         else:
-            logger.info("ℹ️ Skipping context generation for non-Java files")
+            logger.info("ℹ️ Skipping Java context generation for non-Java files")
+
+        # ------------------------------------------------------
+        # CONTEXT GENERATOR (frontend files)
+        # ------------------------------------------------------
+        frontend_context_text = ""
+        if is_frontend:
+            from frontend_context import generate_frontend_context
+
+            frontend_files = [f for f in files_to_review if is_frontend_file(f)]
+            if frontend_files:
+                logger.info(
+                    f"🎨 Generating frontend context for {len(frontend_files)} "
+                    f"{platform} files..."
+                )
+                try:
+                    frontend_context_text = generate_frontend_context(
+                        repo=repo_path,
+                        files=frontend_files,
+                        platform=platform,
+                        output=f"/home/ubuntu/context/frontend_context_PR_{pr_id}.txt",
+                        return_string=True,
+                    )
+                except Exception as fe:
+                    logger.warning(f"⚠️ Frontend context generation failed: {fe}")
 
         # ------------------------------------------------------
         # SEND TO CLAUDE
@@ -471,12 +556,48 @@ async def webhook_handler(
 
         with open("prompt_rules.txt", "r") as f:
             prompt_rules = f.read().strip()
-        
-        # Build prompt based on whether we have context (Java) or not (other languages)
-        if context_text:
-            prompt_intro = """You are given a PR diff and a context file. Analyze the code changes as a senior backend developer, deeply reviewing both the diff and the context file to provide insightful, high-quality comments. Focus on correctness, maintainability, performance, null-safety, consistency, and architectural implications. Comments should be concise, professional, and actionable, without restating the diff."""
+
+        # Append frontend-specific rules when applicable
+        prompt_rules_combined = prompt_rules
+        if is_frontend:
+            try:
+                with open("prompt_rules_frontend.txt", "r") as f:
+                    frontend_rules = f.read().strip()
+                prompt_rules_combined = (
+                    prompt_rules + "\n\nAdditional Frontend-Specific Rules:\n" + frontend_rules
+                )
+            except FileNotFoundError:
+                logger.warning("⚠️ prompt_rules_frontend.txt not found — using base rules only")
+
+        # Build prompt intro based on detected platform
+        if context_text and is_frontend:
+            # Mixed PR: Java + frontend files
+            prompt_intro = (
+                "You are given a PR diff and context files covering both backend and frontend changes. "
+                "Analyze the code changes as a senior full-stack developer, reviewing backend correctness, "
+                "null-safety, and architecture alongside frontend-specific concerns such as component design, "
+                "state management, and platform-specific best practices. "
+                "Comments should be concise, professional, and actionable, without restating the diff."
+            )
+        elif context_text:
+            prompt_intro = (
+                "You are given a PR diff and a context file. Analyze the code changes as a senior backend "
+                "developer, deeply reviewing both the diff and the context file to provide insightful, "
+                "high-quality comments. Focus on correctness, maintainability, performance, null-safety, "
+                "consistency, and architectural implications. Comments should be concise, professional, "
+                "and actionable, without restating the diff."
+            )
+        elif is_frontend:
+            prompt_intro = get_frontend_prompt_intro(
+                platform, has_context=bool(frontend_context_text)
+            )
         else:
-            prompt_intro = """You are given a PR diff. Analyze the code changes as a senior backend developer, providing insightful, high-quality comments. Focus on correctness, maintainability, performance, consistency, and architectural implications. Comments should be concise, professional, and actionable, without restating the diff."""
+            prompt_intro = (
+                "You are given a PR diff. Analyze the code changes as a senior backend developer, "
+                "providing insightful, high-quality comments. Focus on correctness, maintainability, "
+                "performance, consistency, and architectural implications. Comments should be concise, "
+                "professional, and actionable, without restating the diff."
+            )
         
         prompt = f"""
                         {prompt_intro}
@@ -494,7 +615,7 @@ async def webhook_handler(
                         }}
                         }}
                         ~~~~
-                        {prompt_rules}
+                        {prompt_rules_combined}
                         Make sure to enclose any code snippets in triple backticks back 
                         Dont just suggest, you need to sound authoritative. Also, dont give direct reference to context number, use file or service name
                         Output Example:
@@ -527,12 +648,20 @@ async def webhook_handler(
                         {diff_text}
                         """
         
-        # Add context only if it was generated (for Java files)
+        # Add Java context if generated
         if context_text:
             prompt += f"""
                         Context File:
 
                         {context_text}
+                        """
+
+        # Add frontend context if generated
+        if frontend_context_text:
+            prompt += f"""
+                        Frontend Context:
+
+                        {frontend_context_text}
                         """
 
         client = Anthropic(api_key=CLAUDE_API_KEY)

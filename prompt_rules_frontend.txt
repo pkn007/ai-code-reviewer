@@ -1,0 +1,55 @@
+Frontend-Specific Review Rules:
+
+REACT AND REACT NATIVE:
+Flag missing key props on list items rendered with map(); a missing key causes unnecessary re-renders and reconciliation issues.
+Flag incorrect or missing useEffect dependency arrays; stale closures caused by omitted dependencies introduce subtle bugs that are hard to trace.
+Flag direct state mutations — state must only be updated via the setter function or dispatch; mutations bypass React's rendering cycle and cause inconsistent UI.
+Flag inline object, array, or function literals passed as props or used in dependency arrays inside JSX — these create new references on every render and break memoization.
+Flag prop drilling beyond two levels when a Context or state manager is already present in the codebase; require using the existing pattern.
+Flag async functions passed directly as useEffect callbacks — async effects must wrap their logic in an inner async function and return a cleanup function if needed.
+Flag components that tightly couple business logic with rendering without clear separation; extract logic to custom hooks.
+Flag async operations that render without loading and error state handling; both states must be addressed explicitly.
+Flag event handlers defined inline in JSX that perform expensive operations — wrap in useCallback when passed to memoized children.
+Flag usage of useLayoutEffect when useEffect is sufficient; useLayoutEffect blocks painting and should be reserved for DOM measurement.
+
+NEXT.JS:
+Flag useEffect + fetch patterns in components that could instead use Server Components or data fetching functions (getServerSideProps, getStaticProps, generateStaticParams).
+Flag API routes returning sensitive data without authentication or authorization checks visible in the diff.
+Flag useRouter().query access without an isReady guard; router.query is empty on first render in the pages router.
+Flag dynamic imports of browser-only libraries without ssr: false; these will throw on the server.
+Flag layout components that do not follow the Next.js layout pattern (layout.tsx or _app.tsx wrapping).
+Flag missing revalidate values in getStaticProps for content that changes; stale data will be served indefinitely.
+Flag importing large libraries at the top level in a Server Component when they should be dynamically imported.
+
+ANDROID (KOTLIN):
+Flag View access, UI updates, or binding usage outside the main thread; all UI operations must be on the main dispatcher.
+Flag GlobalScope usage for coroutines — use lifecycleScope, viewModelScope, or a structured scope tied to a lifecycle.
+Flag Activity context stored in a static field, a singleton, or a ViewModel — this causes memory leaks; use applicationContext where lifecycle-independence is needed.
+Flag missing null checks on view binding references in Fragments, especially in callbacks that can fire after the view is destroyed (use binding? safely or check isAdded).
+Flag blocking I/O or network calls on the main thread without a coroutine or background dispatcher.
+Flag missing error handling (try/catch or .catch { }) in suspend functions and coroutine builders.
+Flag Adapter implementations for RecyclerView that do not use DiffUtil or ListAdapter — full notifyDataSetChanged() calls cause unnecessary redraws.
+Flag use of deprecated Android APIs introduced in the diff without a migration comment or alternative.
+Flag ViewModel instances created directly with constructor injection instead of through ViewModelProvider or Hilt/Koin injection.
+Flag missing lifecycle-aware data observation — LiveData or StateFlow must be collected in a lifecycle-aware scope; plain coroutine.collect without repeatOnLifecycle leaks in background.
+
+IOS (SWIFT):
+Flag closures that capture self strongly when the closure is stored as a property or escaping — require [weak self] with a guard let self else return pattern.
+Flag force unwraps (!) on optionals that are not guaranteed safe by construction; suggest guard let, if let, or the nil-coalescing operator.
+Flag UI updates called from a background thread or a non-main actor context; require DispatchQueue.main.async or @MainActor.
+Flag Combine subscriptions that are not stored in a Set<AnyCancellable> or a named AnyCancellable property; orphaned subscriptions cancel immediately.
+Flag @escaping closures in a class that capture self without a weak reference where the closure may outlive the owner.
+Flag missing throws propagation in async functions that can fail; silent failures hide errors from callers.
+Flag delegate properties declared as strong (the default) — delegate properties must be weak to avoid retain cycles.
+Flag UITableView or UICollectionView reloadData() calls that could be replaced with performBatchUpdates for better animation and performance.
+Flag missing cancellation tokens for long-running async Task instances when the owning view or view controller is deallocated.
+
+CROSS-PLATFORM (ALL):
+Flag hardcoded magic strings and numeric values that belong in constants, enums, or resource files.
+Flag missing accessibility attributes: contentDescription (Android), accessibilityLabel/accessibilityHint (iOS), aria-label or role (React/Web).
+Flag string formatting that bypasses the project's localization or i18n utilities.
+Flag unsafe HTML rendering — dangerouslySetInnerHTML in React, or innerHTML assignment in plain JS — without explicit sanitization.
+Flag sensitive data (tokens, credentials, user PII) written to logs, console, or stored in plain-text local storage.
+Flag use of the any type in TypeScript without a comment justifying why a more specific type cannot be used.
+Flag deeply nested ternary expressions inside JSX, Kotlin lambdas, or Swift closures — extract to a named variable or a helper function.
+Flag platform-specific code paths that are missing a corresponding case for other supported platforms in a cross-platform codebase.

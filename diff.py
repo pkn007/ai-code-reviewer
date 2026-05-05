@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import httpx
+import os
 import re
 from typing import Dict, List
 
@@ -194,17 +195,25 @@ def extract_files_with_min_changes(
     """
     Returns files (matching extensions) having >= min_lines of changes.
     Works for full + incremental diffs.
-    Uses simple line counting (not comment-aware like Java).
+    Uses comment-aware counting for C-style languages (JS/TS/Kotlin/Swift);
+    falls back to simple line counting for everything else.
     """
+    # These languages share C-style comment syntax; reuse the Java comment filter.
+    CSTYLE_EXTS = {'.kt', '.kts', '.swift', '.js', '.ts', '.jsx', '.tsx', '.mjs', '.vue'}
+
     result = []
     files = split_diff_by_file(diff_text)
 
     for file, lines in files.items():
-        # Check if file matches any of the extensions
         if not any(file.endswith(ext) for ext in file_extensions):
             continue
 
-        changed = count_changes_for_file(lines)
+        _, ext = os.path.splitext(file)
+        if ext in CSTYLE_EXTS:
+            changed = count_non_comment_java_changes(lines)
+        else:
+            changed = count_changes_for_file(lines)
+
         if changed >= min_lines:
             result.append(file)
 
