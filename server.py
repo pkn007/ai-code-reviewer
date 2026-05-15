@@ -87,7 +87,6 @@ def get_frontend_prompt_intro(platform: str, has_context: bool = False) -> str:
 
 
 POS_ADAPTER_SERVICE_REPO = "pos-adapter-service"
-POS_ADAPTER_SERVICE_EXTRA_TARGETS = {"dealshare_pos_core"}
 
 # ------------------------------------------------------
 # LOAD ENV
@@ -372,21 +371,20 @@ async def webhook_handler(
     if x_event_key not in allowed:
         return {"status": "ignored", "event": x_event_key}
 
-    # Check if PR target branch is allowed for this repository
+    # Check if PR target branch is allowed (pos-adapter-service: all branches)
     pr = payload.get("pullrequest", {})
     repo = payload.get("repository", {}).get("name", "")
     destination_branch = pr.get("destination", {}).get("branch", {}).get("name", "")
     destination_branch_lower = destination_branch.lower()
-    allowed_targets = set(PRIMARY_TARGET_BRANCHES)
-    if repo == POS_ADAPTER_SERVICE_REPO:
-        allowed_targets.update(POS_ADAPTER_SERVICE_EXTRA_TARGETS)
 
-    if destination_branch_lower not in allowed_targets and not destination_branch_lower.startswith("release/"):
-        logger.info(f"🛑 PR target not allowed — skipping (repo: {repo}, target: {destination_branch})")
-        return {
-            "status": "ignored",
-            "reason": f"target branch '{destination_branch}' not allowed for repo '{repo}'"
-        }
+    if repo != POS_ADAPTER_SERVICE_REPO:
+        allowed_targets = set(PRIMARY_TARGET_BRANCHES)
+        if destination_branch_lower not in allowed_targets and not destination_branch_lower.startswith("release/"):
+            logger.info(f"🛑 PR target not allowed — skipping (repo: {repo}, target: {destination_branch})")
+            return {
+                "status": "ignored",
+                "reason": f"target branch '{destination_branch}' not allowed for repo '{repo}'"
+            }
 
     async def process():
         repo = payload["repository"]["name"]
